@@ -11,7 +11,13 @@ This link will contain at least the following information:
 4. Optionally, which UI should be opened when the user clicks the link.
    By default `nbgitpuller` uses the classic notebook interface - but you may instead use
    [JupyterLab](https://github.com/jupyterlab/jupyterlab/), [RStudio](https://github.com/jupyterhub/jupyter-rsession-proxy/), [Linux Desktop](https://github.com/jupyterhub/jupyter-remote-desktop-proxy), etc based on what you have available in your JupyterHub.
-   open for your students once the repository has been synchronized. Note the entire repository will be copied, not just the specified file.
+   open for your students once the repository has been synchronized. By
+   default, the entire repository will be copied, not just the specified file.
+
+   To check out only one directory from a large content repository, use the
+   `sparsePath` URL option. This also enables a partial clone when the remote Git
+   server supports it. See the {ref}`URL options <topic/url-options>` for details
+   and limitations.
 
 The first time a particular student clicks the link, a local copy of the
 repository is made for the student. On successive clicks, the latest version

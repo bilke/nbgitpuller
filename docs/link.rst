@@ -186,6 +186,17 @@ Use the following form to create your own ``nbgitpuller`` links.
            </div>
 
            <div class="form-group row">
+             <label for="sparsePath" class="col-sm-2 col-form-label">Sparse Path</label>
+             <div class="col-sm-10">
+               <input class="form-control" type="text" id="sparsePath" placeholder="(optional) Directory from the repository to check out"
+                 oninput="displayLink()">
+               <small class="form-text text-muted">
+                 Only check out this repository-relative directory. Requires Git 2.25 or newer in the user environment.
+               </small>
+             </div>
+           </div>
+
+           <div class="form-group row">
              <label for="targetPath" class="col-sm-2 col-form-label">Target Path</label>
              <div class="col-sm-10">
                <input class="form-control" type="text" id="targetPath" placeholder="(optional) Directory to clone into"

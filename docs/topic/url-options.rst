@@ -103,6 +103,27 @@ You can specify a different parent directory for the clone by setting the enviro
 If you require full control over the destination directory, or want to set the directory at runtime in the nbgitpuller link use this parameter.
 
 
+``sparsePath``
+==============
+
+A repository-relative directory to check out. When set for a new repository,
+nbgitpuller combines a partial clone using ``--filter=blob:none`` with Git's
+cone-mode sparse checkout. This avoids initially downloading file contents that
+are not needed by the selected directory. Git 2.25 or newer is required.
+
+The directory keeps its path relative to the repository root. For example,
+``sparsePath=notebooks/course-a`` places the content under
+``<targetPath>/notebooks/course-a``. Cone mode also checks out files immediately
+below the repository root and below parent directories of the selected path.
+
+Sparse paths are persistent and additive. If another link selects a different
+directory in the same local repository, both directories remain checked out.
+Applying ``sparsePath`` to an existing full clone reduces its working tree, but
+does not remove Git objects that have already been downloaded. The remote Git
+server must support partial-clone filters for the initial clone to save network
+transfer; otherwise Git may fall back to downloading all objects.
+
+
 ``backup``
 ==========
 

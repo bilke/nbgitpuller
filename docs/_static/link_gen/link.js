@@ -1,5 +1,5 @@
 // Pure function that generates an nbgitpuller URL
-function generateRegularUrl(hubUrl, serverPath, urlPath, repoUrl, branch, targetPath) {
+function generateRegularUrl(hubUrl, serverPath, urlPath, repoUrl, branch, sparsePath, targetPath) {
 
     // assume hubUrl is a valid URL
     var url = new URL(hubUrl);
@@ -12,6 +12,10 @@ function generateRegularUrl(hubUrl, serverPath, urlPath, repoUrl, branch, target
 
     if (branch) {
         url.searchParams.set('branch', branch);
+    }
+
+    if (sparsePath) {
+        url.searchParams.set('sparsePath', sparsePath);
     }
 
     if (targetPath) {
@@ -31,7 +35,7 @@ function generateRegularUrl(hubUrl, serverPath, urlPath, repoUrl, branch, target
     return url.toString();
 }
 
-function generateCanvasUrl(hubUrl, urlPath, repoUrl, branch, targetPath) {
+function generateCanvasUrl(hubUrl, urlPath, repoUrl, branch, sparsePath, targetPath) {
     // assume hubUrl is a valid URL
     var url = new URL(hubUrl);
 
@@ -45,6 +49,10 @@ function generateCanvasUrl(hubUrl, urlPath, repoUrl, branch, targetPath) {
 
     if (branch) {
         nextUrlParams.append('branch', branch);
+    }
+
+    if (sparsePath) {
+        nextUrlParams.append('sparsePath', sparsePath);
     }
 
     if (targetPath) {
@@ -63,7 +71,7 @@ function generateCanvasUrl(hubUrl, urlPath, repoUrl, branch, targetPath) {
 }
 
 function generateBinderUrl(hubUrl, userName, repoName, branch, urlPath,
-    contentRepoUrl, contentRepoBranch, targetPath) {
+    contentRepoUrl, contentRepoBranch, sparsePath, targetPath) {
 
     var url = new URL(hubUrl);
 
@@ -77,6 +85,10 @@ function generateBinderUrl(hubUrl, userName, repoName, branch, urlPath,
 
     if (contentRepoBranch) {
         nextUrlParams.append('branch', contentRepoBranch);
+    }
+
+    if (sparsePath) {
+        nextUrlParams.append('sparsePath', sparsePath);
     }
 
     if (targetPath) {
@@ -180,6 +192,7 @@ function displayLink() {
         var server = document.getElementById('server').value;
         var appName = form.querySelector('input[name="app"]:checked').value;
         var activeTab = document.querySelector(".nav-link.active").id;
+        var sparsePath = document.getElementById('sparsePath').value;
         var targetPath = document.getElementById('targetPath').value;
 
         if (appName === 'custom') {
@@ -197,11 +210,11 @@ function displayLink() {
 
         if (activeTab === "tab-auth-default") {
             document.getElementById('default-link').value = generateRegularUrl(
-                hubUrl, server, urlPath, repoUrl, branch, targetPath
+                hubUrl, server, urlPath, repoUrl, branch, sparsePath, targetPath
             );
         } else if (activeTab === "tab-auth-canvas"){
             document.getElementById('canvas-link').value = generateCanvasUrl(
-                hubUrl, urlPath, repoUrl, branch, targetPath
+                hubUrl, urlPath, repoUrl, branch, sparsePath, targetPath
             );
         } else if (activeTab === "tab-auth-binder"){
             // FIXME: userName parsing using new URL(...) assumes a
@@ -209,7 +222,8 @@ function displayLink() {
             // BinderHub link for SSH URLs? Then let's fix this parsing.
             var userName = new URL(repoUrl).pathname.split('/')[1];
             document.getElementById('binder-link').value = generateBinderUrl(
-                hubUrl, userName, repoName, branch, urlPath, contentRepoUrl, contentRepoBranch, targetPath
+                hubUrl, userName, repoName, branch, urlPath, contentRepoUrl,
+                contentRepoBranch, sparsePath, targetPath
             );
         }
     }
@@ -218,7 +232,7 @@ function populateFromQueryString() {
     // preseed values if specified in the url
     var params = new URLSearchParams(window.location.search);
     // Parameters are read from query string, and <input> fields are set to them
-    var allowedParams = ['hub', 'repo', 'content-repo', 'branch', 'app', 'urlpath'];
+    var allowedParams = ['hub', 'repo', 'content-repo', 'branch', 'app', 'urlpath', 'sparsePath'];
     if (params.has("urlpath")) {
         // setting urlpath implies a custom app
         document.getElementById('app-custom').checked = true;
