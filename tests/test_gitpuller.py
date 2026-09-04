@@ -10,7 +10,17 @@ import tempfile
 from traitlets.config.configurable import Configurable
 
 from repohelpers import Remote, Pusher, Puller
-from nbgitpuller.errors import GitPullerError, BranchResolveError
+from nbgitpuller import GitPuller
+from nbgitpuller.errors import (
+    BranchResolveError,
+    GitPullerError,
+    SparseCheckoutError,
+)
+
+requires_sparse_checkout = pytest.mark.skipif(
+    GitPuller.git_version() < GitPuller.minimum_sparse_checkout_git_version,
+    reason='sparse checkout requires Git 2.25 or newer',
+)
 
 
 # Tests to write:
@@ -32,6 +42,134 @@ def test_initialize():
             assert os.path.exists(os.path.join(puller.path, 'README.md'))
             assert puller.git('name-rev', '--name-only', 'HEAD') == 'master'
             assert puller.git('rev-parse', 'HEAD') == pusher.git('rev-parse', 'HEAD')
+
+
+@requires_sparse_checkout
+def test_sparse_initialize():
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            os.makedirs(os.path.join(pusher.path, 'selected'))
+            os.makedirs(os.path.join(pusher.path, 'excluded'))
+            pusher.push_file('selected/notebook.ipynb', 'selected')
+            pusher.push_file('excluded/large.dat', 'excluded')
+            excluded_blob = pusher.git('rev-parse', 'HEAD:excluded/large.dat')
+
+            with Puller(remote, sparse_path='selected') as puller:
+                assert puller.read_file('selected/notebook.ipynb') == 'selected'
+                assert not os.path.exists(
+                    os.path.join(puller.path, 'excluded')
+                )
+
+                assert puller.git('sparse-checkout', 'list') == 'selected'
+                assert puller.git(
+                    'config', '--get', 'remote.origin.partialclonefilter'
+                ) == 'blob:none'
+                objects = puller.git(
+                    'rev-list', '--objects', '--missing=print', 'HEAD'
+                ).splitlines()
+                assert '?{}'.format(excluded_blob) in objects
+
+
+@requires_sparse_checkout
+def test_sparse_update():
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            os.makedirs(os.path.join(pusher.path, 'selected'))
+            os.makedirs(os.path.join(pusher.path, 'excluded'))
+            pusher.push_file('selected/notebook.ipynb', 'one')
+            pusher.push_file('excluded/data.txt', 'one')
+
+            with Puller(remote, sparse_path='selected') as puller:
+                pusher.push_file('selected/notebook.ipynb', 'two')
+                pusher.push_file('excluded/data.txt', 'two')
+
+                puller.pull_all()
+
+                assert puller.read_file('selected/notebook.ipynb') == 'two'
+                assert not os.path.exists(
+                    os.path.join(puller.path, 'excluded')
+                )
+
+                puller.write_file('selected/notebook.ipynb', 'local')
+                pusher.push_file('selected/notebook.ipynb', 'three')
+                puller.pull_all()
+
+                assert puller.read_file('selected/notebook.ipynb') == 'local'
+
+
+@requires_sparse_checkout
+def test_sparse_paths_are_additive():
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            os.makedirs(os.path.join(pusher.path, 'first'))
+            os.makedirs(os.path.join(pusher.path, 'second'))
+            pusher.push_file('first/notebook.ipynb', 'first')
+            pusher.push_file('second/notebook.ipynb', 'second')
+
+            with Puller(remote, sparse_path='first') as puller:
+                second_puller = Puller(
+                    remote, path=puller.path, sparse_path='second'
+                )
+                second_puller.pull_all()
+
+                assert puller.read_file('first/notebook.ipynb') == 'first'
+                assert puller.read_file('second/notebook.ipynb') == 'second'
+                assert set(
+                    puller.git('sparse-checkout', 'list').splitlines()
+                ) == {'first', 'second'}
+
+
+@requires_sparse_checkout
+def test_sparse_path_converts_existing_clone():
+    with Remote() as remote, Pusher(remote) as pusher:
+        os.makedirs(os.path.join(pusher.path, 'selected'))
+        os.makedirs(os.path.join(pusher.path, 'excluded'))
+        pusher.push_file('selected/notebook.ipynb', 'selected')
+        pusher.push_file('excluded/data.txt', 'excluded')
+
+        with Puller(remote) as puller:
+            sparse_puller = Puller(
+                remote, path=puller.path, sparse_path='selected'
+            )
+            sparse_puller.pull_all()
+
+            assert puller.read_file('selected/notebook.ipynb') == 'selected'
+            assert not os.path.exists(os.path.join(puller.path, 'excluded'))
+
+
+@pytest.mark.parametrize(
+    'sparse_path',
+    ['', '.', '/', '/absolute', '../parent', 'a/../b', '.git/objects', '-x'],
+)
+def test_invalid_sparse_path(sparse_path):
+    with pytest.raises(SparseCheckoutError):
+        GitPuller('unused', 'unused', sparse_path=sparse_path)
+
+
+def test_sparse_path_requires_git_2_25(monkeypatch):
+    monkeypatch.setattr(GitPuller, 'git_version', lambda self: (2, 24))
+
+    with pytest.raises(SparseCheckoutError, match='Git 2.25 or newer'):
+        GitPuller('unused', 'unused', sparse_path='selected')
+
+
+@pytest.mark.parametrize('sparse_path', ['missing', 'README.md'])
+@requires_sparse_checkout
+def test_sparse_path_must_exist_as_directory(tmp_path, sparse_path):
+    with Remote() as remote, Pusher(remote) as pusher:
+        pusher.push_file('README.md', 'content')
+        puller = GitPuller(
+            'file://{}'.format(os.path.abspath(remote.path)),
+            str(tmp_path / 'clone'),
+            branch='master',
+            sparse_path=sparse_path,
+        )
+
+        with pytest.raises(SparseCheckoutError):
+            list(puller.pull())
 
 
 def command_line_test_helper(remote_path, branch, pusher_path):

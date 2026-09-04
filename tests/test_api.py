@@ -8,6 +8,7 @@ import notebook
 import pytest
 
 from repohelpers import Pusher, Remote
+from nbgitpuller import GitPuller
 
 PORT = os.getenv('TEST_PORT', 18888)
 
@@ -158,6 +159,39 @@ def test_clone_targetpath(jupyterdir, jupyter_server):
         target_path = os.path.join(jupyterdir, target)
         assert f"Cloning into '{target_path}" in s
         assert os.path.isdir(os.path.join(target_path, '.git'))
+
+
+@pytest.mark.skipif(
+    GitPuller.git_version() < GitPuller.minimum_sparse_checkout_git_version,
+    reason='sparse checkout requires Git 2.25 or newer',
+)
+def test_clone_sparsepath(jupyterdir, jupyter_server):
+    """Tests use of the sparsePath parameter."""
+    target = str(uuid4())
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            os.makedirs(os.path.join(pusher.path, 'selected'))
+            os.makedirs(os.path.join(pusher.path, 'excluded'))
+            pusher.push_file('selected/notebook.ipynb', 'selected')
+            pusher.push_file('excluded/data.txt', 'excluded')
+            params = {
+                'repo': remote.path,
+                'branch': 'master',
+                'sparsePath': 'selected',
+                'targetpath': target,
+            }
+
+            r = request_api(params)
+
+            assert r.code == 200
+            s = r.read().decode()
+            target_path = os.path.join(jupyterdir, target)
+            assert '--filter=blob:none --no-checkout' in s
+            assert os.path.isfile(
+                os.path.join(target_path, 'selected', 'notebook.ipynb')
+            )
+            assert not os.path.exists(os.path.join(target_path, 'excluded'))
 
 
 @pytest.mark.jupyter_server(extra_env={'NBGITPULLER_PARENTPATH': "parent"})
