@@ -1,6 +1,6 @@
 *.pyc
 
-dist/
+/dist/
 build/
 *.egg-info/
 
@@ -21,4 +21,6 @@ docs/_build
 node_modules/
 package-lock.json
 
-nbgitpuller/static/dist
+nbgitpuller/static/dist/*
+!nbgitpuller/static/dist/bundle.js
+!nbgitpuller/static/dist/bundle.js.LICENSE.txt
