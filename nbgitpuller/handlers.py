@@ -67,6 +67,8 @@ class SyncHandler(JupyterHandler):
             branch = self.get_argument('branch', None)
             depth = self.get_argument('depth', None)
             backup = self.get_argument('backup', False)
+            sparse_path = self.get_argument('sparsePath', None) or \
+                          self.get_argument('sparsepath', None)
             if depth:
                 depth = int(depth)
             # The default working directory is the directory from which Jupyter
@@ -87,7 +89,15 @@ class SyncHandler(JupyterHandler):
             self.set_header('cache-control', 'no-cache')
 
             try:
-                gp = GitPuller(repo, repo_dir, branch=branch, depth=depth, backup=backup, parent=self.settings['nbapp'])
+                gp = GitPuller(
+                    repo,
+                    repo_dir,
+                    branch=branch,
+                    depth=depth,
+                    backup=backup,
+                    sparse_path=sparse_path,
+                    parent=self.settings['nbapp'],
+                )
             except Exception as e:
                 err = GitPullerError.from_exception(e)
                 err.traceback = GitPullerError.format_traceback(e)
@@ -161,6 +171,8 @@ class UIHandler(JupyterHandler):
         repo = self.get_argument('repo')
         branch = self.get_argument('branch', None)
         depth = self.get_argument('depth', None)
+        sparsePath = self.get_argument('sparsePath', None) or \
+                     self.get_argument('sparsepath', None)
         urlPath = self.get_argument('urlpath', None) or \
                   self.get_argument('urlPath', None)
         subPath = self.get_argument('subpath', None) or \
@@ -187,7 +199,9 @@ class UIHandler(JupyterHandler):
 
         self.write(
             jinja_env.get_template('status.html').render(
-                repo=repo, branch=branch, path=path, depth=depth, targetpath=targetpath, backup=backup, version=__version__,
+                repo=repo, branch=branch, path=path, depth=depth,
+                sparse_path=sparsePath, targetpath=targetpath,
+                backup=backup, version=__version__,
                 **self.template_namespace
             )
         )

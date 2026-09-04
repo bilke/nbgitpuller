@@ -115,3 +115,14 @@ class RemoteError(GitPullerError):
             message= self.message,
             traceback_message=traceback_message
         )
+
+
+class SparseCheckoutError(GitPullerError):
+    code = "sparse_checkout"
+
+    def __init__(self, message, traceback_message=None):
+        super().__init__(
+            code=self.code,
+            message=message,
+            traceback_message=traceback_message,
+        )

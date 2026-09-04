@@ -4,11 +4,16 @@ import logging
 import time
 import argparse
 import datetime
+import re
 from itertools import count
 from traitlets import Integer, default
 from traitlets.config import Configurable
 from functools import partial
-from nbgitpuller.errors import BranchExistError, BranchResolveError
+from nbgitpuller.errors import (
+    BranchExistError,
+    BranchResolveError,
+    SparseCheckoutError,
+)
 
 
 def execute_cmd(cmd, **kwargs):
@@ -16,13 +21,21 @@ def execute_cmd(cmd, **kwargs):
     Call given command, yielding output line by line
     """
     yield '$ {}\n'.format(' '.join(cmd))
+    input_data = kwargs.pop('input', None)
     kwargs['stdout'] = subprocess.PIPE
     kwargs['stderr'] = subprocess.STDOUT
+    if input_data is not None:
+        kwargs['stdin'] = subprocess.PIPE
     # Explicitly set LANG=C, as `git` commandline output will be different if
     # the user environment has a different locale set!
     kwargs['env'] = dict(os.environ, LANG='C')
 
     proc = subprocess.Popen(cmd, **kwargs)
+    if input_data is not None:
+        if isinstance(input_data, str):
+            input_data = input_data.encode()
+        proc.stdin.write(input_data)
+        proc.stdin.close()
 
     # Capture output for logging.
     # Each line will be yielded as text.
@@ -51,6 +64,8 @@ def execute_cmd(cmd, **kwargs):
 
 
 class GitPuller(Configurable):
+    minimum_sparse_checkout_git_version = (2, 25)
+
     depth = Integer(
         config=True,
         help="""
@@ -78,6 +93,12 @@ class GitPuller(Configurable):
         self.branch_name = kwargs.pop("branch", None)
         self.repo_dir = repo_dir
         backup = kwargs.pop("backup", False)
+        self.sparse_path = self.validate_sparse_path(
+            kwargs.pop("sparse_path", None)
+        )
+
+        if self.sparse_path:
+            self.ensure_sparse_checkout_supported()
 
         if self.branch_name is None:
             self.branch_name = self.resolve_default_branch()
@@ -89,6 +110,64 @@ class GitPuller(Configurable):
 
         newargs = {k: v for k, v in kwargs.items() if v is not None}
         super(GitPuller, self).__init__(**newargs)
+
+    @staticmethod
+    def validate_sparse_path(sparse_path):
+        """Validate and normalize a repository-relative sparse directory."""
+        if sparse_path is None:
+            return None
+
+        sparse_path = sparse_path.strip().rstrip('/')
+        if not sparse_path or sparse_path == '.':
+            raise SparseCheckoutError(
+                "sparsePath must name a directory below the repository root"
+            )
+        if sparse_path.startswith('/') or '\\' in sparse_path:
+            raise SparseCheckoutError(
+                "sparsePath must be a repository-relative POSIX path"
+            )
+
+        path_parts = sparse_path.split('/')
+        if any(
+            not part
+            or part in ('.', '..', '.git')
+            or part.startswith('-')
+            or any(ord(character) < 32 for character in part)
+            for part in path_parts
+        ):
+            raise SparseCheckoutError(
+                "sparsePath contains an invalid path component"
+            )
+
+        return '/'.join(path_parts)
+
+    @staticmethod
+    def git_version():
+        """Return the installed Git major and minor version."""
+        output = subprocess.check_output(
+            ['git', '--version'], text=True
+        ).strip()
+        match = re.search(r'(\d+)\.(\d+)', output)
+        if not match:
+            raise SparseCheckoutError(
+                "Could not determine the installed Git version"
+            )
+        return tuple(int(component) for component in match.groups())
+
+    def ensure_sparse_checkout_supported(self):
+        """Fail clearly if sparse checkout is requested with an old Git."""
+        version = self.git_version()
+        if version < self.minimum_sparse_checkout_git_version:
+            required = '.'.join(
+                str(component)
+                for component in self.minimum_sparse_checkout_git_version
+            )
+            installed = '.'.join(str(component) for component in version)
+            raise SparseCheckoutError(
+                "sparsePath requires Git {} or newer; found Git {}".format(
+                    required, installed
+                )
+            )
 
 
     def branch_exists(self, branch):
@@ -179,10 +258,98 @@ class GitPuller(Configurable):
         clone_args = ['git', 'clone']
         if self.depth and self.depth > 0:
             clone_args.extend(['--depth', str(self.depth)])
+        if self.sparse_path:
+            clone_args.extend(['--filter=blob:none', '--no-checkout'])
         clone_args.extend(['--branch', self.branch_name])
         clone_args.extend(["--", self.git_url, self.repo_dir])
         yield from execute_cmd(clone_args)
+        if self.sparse_path:
+            self.ensure_sparse_path_exists('HEAD')
+            yield from self.set_sparse_paths([self.sparse_path])
+            yield from execute_cmd(
+                ['git', 'checkout', self.branch_name], cwd=self.repo_dir
+            )
         logging.info('Repo {} initialized'.format(self.repo_dir))
+
+    def ensure_sparse_path_exists(self, revision):
+        """Ensure sparse_path identifies a directory in revision."""
+        object_name = '{}:{}'.format(revision, self.sparse_path)
+        try:
+            object_type = subprocess.check_output(
+                ['git', 'cat-file', '-t', object_name],
+                cwd=self.repo_dir,
+                stderr=subprocess.STDOUT,
+                text=True,
+            ).strip()
+        except subprocess.CalledProcessError as error:
+            raise SparseCheckoutError(
+                "sparsePath '{}' does not exist in {}".format(
+                    self.sparse_path, revision
+                ),
+                traceback_message=error.output,
+            )
+
+        if object_type != 'tree':
+            raise SparseCheckoutError(
+                "sparsePath '{}' is not a directory in {}".format(
+                    self.sparse_path, revision
+                )
+            )
+
+    def sparse_checkout_enabled(self):
+        """Return whether the repository already uses sparse checkout."""
+        result = subprocess.run(
+            ['git', 'config', '--bool', 'core.sparseCheckout'],
+            cwd=self.repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and result.stdout.strip() == 'true'
+
+    def sparse_paths(self):
+        """Return the repository's current cone-mode sparse directories."""
+        output = subprocess.check_output(
+            ['git', '-c', 'core.quotePath=false', 'sparse-checkout', 'list'],
+            cwd=self.repo_dir,
+            text=True,
+        )
+        return [path for path in output.splitlines() if path]
+
+    def set_sparse_paths(self, sparse_paths):
+        """Configure a cone-mode sparse checkout for sparse_paths."""
+        try:
+            yield from execute_cmd(
+                ['git', 'sparse-checkout', 'init', '--cone'],
+                cwd=self.repo_dir,
+            )
+            paths = ''.join(
+                '{}\n'.format(path) for path in sorted(set(sparse_paths))
+            )
+            yield from execute_cmd(
+                ['git', 'sparse-checkout', 'set', '--stdin'],
+                cwd=self.repo_dir,
+                input=paths,
+            )
+        except subprocess.CalledProcessError as error:
+            raise SparseCheckoutError(
+                "Could not configure sparse checkout",
+                traceback_message=str(error),
+            )
+
+    def ensure_sparse_path(self):
+        """Enable sparse checkout or add sparse_path to the current cone."""
+        if not self.sparse_path:
+            return
+
+        self.ensure_sparse_path_exists(
+            'origin/{}'.format(self.branch_name)
+        )
+        sparse_paths = []
+        if self.sparse_checkout_enabled():
+            sparse_paths = self.sparse_paths()
+        if self.sparse_path not in sparse_paths:
+            sparse_paths.append(self.sparse_path)
+            yield from self.set_sparse_paths(sparse_paths)
 
     def reset_deleted_files(self):
         """
@@ -348,6 +515,11 @@ class GitPuller(Configurable):
         # Fetch remotes, so we know we're dealing with latest remote
         yield from self.update_remotes()
 
+        # Sparse selections are persistent and additive. This keeps content
+        # delivered by an earlier link visible when another link for the same
+        # repository requests a different directory.
+        yield from self.ensure_sparse_path()
+
         # Rename local untracked files that might be overwritten by pull
         yield from self.rename_local_untracked()
 
@@ -385,6 +557,7 @@ def main():
     parser.add_argument('branch_name', default=None, help='Branch of repo to sync', nargs='?')
     parser.add_argument('repo_dir', default='.', help='Path to clone repo under', nargs='?')
     parser.add_argument('--backup', action='store_true', default=False, help='Whether to backup existing repo_dir if it exists')
+    parser.add_argument('--sparse-path', default=None, help='Repository-relative directory to check out')
     args = parser.parse_args()
 
     for line in GitPuller(
@@ -392,6 +565,7 @@ def main():
         args.repo_dir,
         branch=args.branch_name if args.branch_name else None,
         backup=args.backup if args.backup else False,
+        sparse_path=args.sparse_path,
     ).pull():
         print(line)
 

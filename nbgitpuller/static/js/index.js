@@ -20,6 +20,7 @@ const gs = new GitSync(
     getBodyData('repo'),
     getBodyData('branch'),
     getBodyData('depth'),
+    getBodyData('sparse-path'),
     getBodyData('targetpath'),
     getBodyData('path'),
     getBodyData('backup'),

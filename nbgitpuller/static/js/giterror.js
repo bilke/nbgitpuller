@@ -15,6 +15,8 @@ export function GitError(gitsync, data) {
         return BranchResolveHelp(data, repo)
       case "ls_remote":
         return RemoteHelp(data, repo)
+      case "sparse_checkout":
+        return SparseCheckoutHelp(data)
       default:
         return GeneralHelp()
     }
@@ -54,6 +56,11 @@ function RemoteHelp (data, repo) {
   return {
     body: `<p class="lead">${data.error.message}</p><p>The source content <a href=${repo}>${repo}</a> is unavailable.</p><p>This can be caused by:<ul><li>An invalid nbgitpuller link<ul><li>The source content could be private. This means you are not authorized to access the repository. This leads to a HTTP 403 "Forbidden" error. Check with the link author who can grant public access to the source content.</li><li>The source content might not exist. This leads to a HTTP 404 "Not Found" error. Check with the link author that the source content exists, or if there is a typo in the source content repository link.</li></ul></li><li>Network issues<ul><li>Network issues can be caused by your internet service provider, your router device or your local machine's network settings. Check your local connection.</li><li>The service hosting the source content could be experiencing difficulties. This can lead to a HTTP 50x server error. Check the status page of the service, e.g. <a href="https://www.githubstatus.com/">GitHub status</a>, for the latest news on any incidents.</li></ul></li></ul></p>`}
 }
+
+function SparseCheckoutHelp (data) {
+  return {
+    body: `<p class="lead">${data.error.message}</p><p>The link author should check that <code>sparsePath</code> names a directory in the selected branch and that the user environment provides Git 2.25 or newer.</p>`}
+};
 
 function GeneralHelp () {
   return {

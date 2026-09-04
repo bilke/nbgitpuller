@@ -1,10 +1,11 @@
 export class GitSync {
-    constructor(baseUrl, repo, branch, depth, targetpath, path, backup, xsrf) {
+    constructor(baseUrl, repo, branch, depth, sparsePath, targetpath, path, backup, xsrf) {
         // Class that talks to the API backend & emits events as appropriate
         this.baseUrl = baseUrl;
         this.repo = repo;
         this.branch = branch;
         this.depth = depth;
+        this.sparsePath = sparsePath;
         this.targetpath = targetpath;
         this.redirectUrl = baseUrl + path;
         this.backup = backup;
@@ -38,6 +39,9 @@ export class GitSync {
         });
         if (typeof this.depth !== 'undefined' && this.depth != undefined) {
             syncUrlParams.append('depth', this.depth);
+        }
+        if (typeof this.sparsePath !== 'undefined' && this.sparsePath != undefined) {
+            syncUrlParams.append('sparsePath', this.sparsePath);
         }
         if (typeof this.branch !== 'undefined' && this.branch != undefined) {
             syncUrlParams.append('branch', this.branch);
