@@ -16,6 +16,11 @@ from nbgitpuller._compat import get_base_handler
 JupyterHandler = get_base_handler()
 
 
+def _get_sparse_paths(handler):
+    paths = handler.get_arguments('sparsePath') + handler.get_arguments('sparsepath')
+    return [path for path in paths if path.strip()]
+
+
 jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(
         os.path.join(os.path.dirname(__file__), 'templates')
     ),
@@ -67,8 +72,7 @@ class SyncHandler(JupyterHandler):
             branch = self.get_argument('branch', None)
             depth = self.get_argument('depth', None)
             backup = self.get_argument('backup', False)
-            sparse_path = self.get_argument('sparsePath', None) or \
-                          self.get_argument('sparsepath', None)
+            sparse_paths = _get_sparse_paths(self)
             if depth:
                 depth = int(depth)
             # The default working directory is the directory from which Jupyter
@@ -95,7 +99,7 @@ class SyncHandler(JupyterHandler):
                     branch=branch,
                     depth=depth,
                     backup=backup,
-                    sparse_path=sparse_path,
+                    sparse_paths=sparse_paths,
                     parent=self.settings['nbapp'],
                 )
             except Exception as e:
@@ -171,8 +175,7 @@ class UIHandler(JupyterHandler):
         repo = self.get_argument('repo')
         branch = self.get_argument('branch', None)
         depth = self.get_argument('depth', None)
-        sparsePath = self.get_argument('sparsePath', None) or \
-                     self.get_argument('sparsepath', None)
+        sparsePaths = _get_sparse_paths(self)
         urlPath = self.get_argument('urlpath', None) or \
                   self.get_argument('urlPath', None)
         subPath = self.get_argument('subpath', None) or \
@@ -200,7 +203,7 @@ class UIHandler(JupyterHandler):
         self.write(
             jinja_env.get_template('status.html').render(
                 repo=repo, branch=branch, path=path, depth=depth,
-                sparse_path=sparsePath, targetpath=targetpath,
+                sparse_paths=','.join(sparsePaths), targetpath=targetpath,
                 backup=backup, version=__version__,
                 **self.template_namespace
             )

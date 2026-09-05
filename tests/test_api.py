@@ -16,7 +16,7 @@ PORT = os.getenv('TEST_PORT', 18888)
 def request_api(params, host='localhost'):
     query_args = {"token": "secret"}
     query_args.update(params)
-    query = urlencode(query_args)
+    query = urlencode(query_args, doseq=True)
     url = f'/git-pull/api?{query}'
     h = HTTPConnection(host, PORT, 10)
     h.request('GET', url)
@@ -191,6 +191,42 @@ def test_clone_sparsepath(jupyterdir, jupyter_server):
             assert os.path.isfile(
                 os.path.join(target_path, 'selected', 'notebook.ipynb')
             )
+            assert not os.path.exists(os.path.join(target_path, 'excluded'))
+
+
+@pytest.mark.parametrize(
+    'sparse_params',
+    [{'sparsePath': ['selected', 'second']}],
+    ids=['repeated-sparsePath'],
+)
+@pytest.mark.skipif(
+    GitPuller.git_version() < GitPuller.minimum_sparse_checkout_git_version,
+    reason='sparse checkout requires Git 2.25 or newer',
+)
+def test_clone_multiple_sparsepaths(jupyterdir, jupyter_server, sparse_params):
+    """Tests repeated sparsePath parameters."""
+    target = str(uuid4())
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            for directory in ('selected', 'second', 'excluded'):
+                os.makedirs(os.path.join(pusher.path, directory))
+                pusher.push_file(f'{directory}/notebook.ipynb', directory)
+            params = {
+                'repo': remote.path,
+                'branch': 'master',
+                'targetpath': target,
+                **sparse_params,
+            }
+
+            r = request_api(params)
+
+            assert r.code == 200
+            target_path = os.path.join(jupyterdir, target)
+            for directory in ('selected', 'second'):
+                assert os.path.isfile(
+                    os.path.join(target_path, directory, 'notebook.ipynb')
+                )
             assert not os.path.exists(os.path.join(target_path, 'excluded'))
 
 

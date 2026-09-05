@@ -72,6 +72,28 @@ def test_sparse_initialize():
 
 
 @requires_sparse_checkout
+def test_sparse_initialize_multiple_paths():
+    with Remote() as remote:
+        remote.git('config', 'uploadpack.allowFilter', 'true')
+        with Pusher(remote) as pusher:
+            for directory in ('first', 'second', 'excluded'):
+                os.makedirs(os.path.join(pusher.path, directory))
+                pusher.push_file(f'{directory}/notebook.ipynb', directory)
+
+            with Puller(remote, sparse_paths=['first', 'second']) as puller:
+                for directory in ('first', 'second'):
+                    assert puller.read_file(
+                        f'{directory}/notebook.ipynb'
+                    ) == directory
+                assert not os.path.exists(
+                    os.path.join(puller.path, 'excluded')
+                )
+                assert set(puller.git('sparse-checkout', 'list').splitlines()) == {
+                    'first', 'second'
+                }
+
+
+@requires_sparse_checkout
 def test_sparse_update():
     with Remote() as remote:
         remote.git('config', 'uploadpack.allowFilter', 'true')

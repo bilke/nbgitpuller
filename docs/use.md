@@ -15,7 +15,7 @@ This link will contain at least the following information:
    default, the entire repository will be copied, not just the specified file.
 
    To check out only one directory from a large content repository, use the
-   `sparsePath` URL option. This also enables a partial clone when the remote Git
+   repeatable `sparsePath` URL option. This also enables a partial clone when the remote Git
    server supports it. See the {ref}`URL options <topic/url-options>` for details
    and limitations.
 

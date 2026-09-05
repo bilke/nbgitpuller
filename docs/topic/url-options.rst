@@ -118,6 +118,8 @@ below the repository root and below parent directories of the selected path.
 
 Sparse paths are persistent and additive. If another link selects a different
 directory in the same local repository, both directories remain checked out.
+Repeat ``sparsePath`` for multiple directories, for example
+``sparsePath=notebooks/course-a&sparsePath=notebooks/course-b``.
 Applying ``sparsePath`` to an existing full clone reduces its working tree, but
 does not remove Git objects that have already been downloaded. The remote Git
 server must support partial-clone filters for the initial clone to save network

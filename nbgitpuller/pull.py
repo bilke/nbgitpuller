@@ -93,11 +93,26 @@ class GitPuller(Configurable):
         self.branch_name = kwargs.pop("branch", None)
         self.repo_dir = repo_dir
         backup = kwargs.pop("backup", False)
-        self.sparse_path = self.validate_sparse_path(
-            kwargs.pop("sparse_path", None)
+        sparse_path = kwargs.pop("sparse_path", None)
+        sparse_paths = kwargs.pop("sparse_paths", None)
+        requested_paths = []
+        if sparse_path is not None:
+            requested_paths.extend(
+                [sparse_path] if isinstance(sparse_path, str) else sparse_path
+            )
+        if sparse_paths is not None:
+            requested_paths.extend(
+                [sparse_paths] if isinstance(sparse_paths, str) else sparse_paths
+            )
+        self.sparse_paths_requested = self.validate_sparse_paths(requested_paths)
+        # Keep the singular attribute for callers of the original API.
+        self.sparse_path = (
+            self.sparse_paths_requested[0]
+            if len(self.sparse_paths_requested) == 1
+            else None
         )
 
-        if self.sparse_path:
+        if self.sparse_paths_requested:
             self.ensure_sparse_checkout_supported()
 
         if self.branch_name is None:
@@ -140,6 +155,11 @@ class GitPuller(Configurable):
             )
 
         return '/'.join(path_parts)
+
+    @classmethod
+    def validate_sparse_paths(cls, sparse_paths):
+        """Validate and normalize repository-relative sparse directories."""
+        return [cls.validate_sparse_path(path) for path in (sparse_paths or [])]
 
     @staticmethod
     def git_version():
@@ -258,22 +278,23 @@ class GitPuller(Configurable):
         clone_args = ['git', 'clone']
         if self.depth and self.depth > 0:
             clone_args.extend(['--depth', str(self.depth)])
-        if self.sparse_path:
+        if self.sparse_paths_requested:
             clone_args.extend(['--filter=blob:none', '--no-checkout'])
         clone_args.extend(['--branch', self.branch_name])
         clone_args.extend(["--", self.git_url, self.repo_dir])
         yield from execute_cmd(clone_args)
-        if self.sparse_path:
-            self.ensure_sparse_path_exists('HEAD')
-            yield from self.set_sparse_paths([self.sparse_path])
+        if self.sparse_paths_requested:
+            for sparse_path in self.sparse_paths_requested:
+                self.ensure_sparse_path_exists('HEAD', sparse_path)
+            yield from self.set_sparse_paths(self.sparse_paths_requested)
             yield from execute_cmd(
                 ['git', 'checkout', self.branch_name], cwd=self.repo_dir
             )
         logging.info('Repo {} initialized'.format(self.repo_dir))
 
-    def ensure_sparse_path_exists(self, revision):
+    def ensure_sparse_path_exists(self, revision, sparse_path):
         """Ensure sparse_path identifies a directory in revision."""
-        object_name = '{}:{}'.format(revision, self.sparse_path)
+        object_name = '{}:{}'.format(revision, sparse_path)
         try:
             object_type = subprocess.check_output(
                 ['git', 'cat-file', '-t', object_name],
@@ -284,7 +305,7 @@ class GitPuller(Configurable):
         except subprocess.CalledProcessError as error:
             raise SparseCheckoutError(
                 "sparsePath '{}' does not exist in {}".format(
-                    self.sparse_path, revision
+                    sparse_path, revision
                 ),
                 traceback_message=error.output,
             )
@@ -292,7 +313,7 @@ class GitPuller(Configurable):
         if object_type != 'tree':
             raise SparseCheckoutError(
                 "sparsePath '{}' is not a directory in {}".format(
-                    self.sparse_path, revision
+                    sparse_path, revision
                 )
             )
 
@@ -338,17 +359,22 @@ class GitPuller(Configurable):
 
     def ensure_sparse_path(self):
         """Enable sparse checkout or add sparse_path to the current cone."""
-        if not self.sparse_path:
+        if not self.sparse_paths_requested:
             return
 
-        self.ensure_sparse_path_exists(
-            'origin/{}'.format(self.branch_name)
-        )
+        for sparse_path in self.sparse_paths_requested:
+            self.ensure_sparse_path_exists(
+                'origin/{}'.format(self.branch_name), sparse_path
+            )
         sparse_paths = []
         if self.sparse_checkout_enabled():
             sparse_paths = self.sparse_paths()
-        if self.sparse_path not in sparse_paths:
-            sparse_paths.append(self.sparse_path)
+        new_paths = [
+            path for path in self.sparse_paths_requested
+            if path not in sparse_paths
+        ]
+        if new_paths:
+            sparse_paths.extend(new_paths)
             yield from self.set_sparse_paths(sparse_paths)
 
     def reset_deleted_files(self):
@@ -557,7 +583,8 @@ def main():
     parser.add_argument('branch_name', default=None, help='Branch of repo to sync', nargs='?')
     parser.add_argument('repo_dir', default='.', help='Path to clone repo under', nargs='?')
     parser.add_argument('--backup', action='store_true', default=False, help='Whether to backup existing repo_dir if it exists')
-    parser.add_argument('--sparse-path', default=None, help='Repository-relative directory to check out')
+    parser.add_argument('--sparse-path', action='append', default=None,
+                        help='Repository-relative directory to check out (repeatable)')
     args = parser.parse_args()
 
     for line in GitPuller(
@@ -565,7 +592,7 @@ def main():
         args.repo_dir,
         branch=args.branch_name if args.branch_name else None,
         backup=args.backup if args.backup else False,
-        sparse_path=args.sparse_path,
+        sparse_paths=args.sparse_path or [],
     ).pull():
         print(line)
 

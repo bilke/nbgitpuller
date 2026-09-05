@@ -59,7 +59,7 @@ function RemoteHelp (data, repo) {
 
 function SparseCheckoutHelp (data) {
   return {
-    body: `<p class="lead">${data.error.message}</p><p>The link author should check that <code>sparsePath</code> names a directory in the selected branch and that the user environment provides Git 2.25 or newer.</p>`}
+    body: `<p class="lead">${data.error.message}</p><p>The link author should check that each <code>sparsePath</code> names a directory in the selected branch and that the user environment provides Git 2.25 or newer.</p>`}
 };
 
 function GeneralHelp () {
